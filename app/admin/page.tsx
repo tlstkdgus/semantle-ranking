@@ -15,11 +15,11 @@ type FinalResultsResponse = {
 }
 
 const initialSnapshot: GameSnapshot = {
-  now: Date.now(),
+  now: 0,
   gameStatus: "SCHEDULED",
-  scheduledStartAt: Date.now(),
-  endAt: Date.now(),
-  durationMs: 30 * 60 * 1000,
+  scheduledStartAt: null,
+  endAt: null,
+  durationMs: null,
   totalPlayers: 0,
   submittedPlayers: 0,
   leaderboard: [],
@@ -27,7 +27,7 @@ const initialSnapshot: GameSnapshot = {
 
 export default function AdminPage() {
   const [snapshot, setSnapshot] = useState<GameSnapshot>(initialSnapshot)
-  const [scheduledStartAt, setScheduledStartAt] = useState(() => getDefaultStartDateTimeLocal())
+  const [scheduledStartAt, setScheduledStartAt] = useState("")
   const [durationMinutes, setDurationMinutes] = useState("30")
   const [answerWord, setAnswerWord] = useState("")
   const [revealedAnswer, setRevealedAnswer] = useState<string | null>(null)
@@ -67,6 +67,10 @@ export default function AdminPage() {
       eventSource.removeEventListener("answer_revealed", handleAnswerRevealed)
       eventSource.close()
     }
+  }, [])
+
+  useEffect(() => {
+    setScheduledStartAt(getDefaultStartDateTimeLocal())
   }, [])
 
   async function fetchState() {
@@ -178,7 +182,7 @@ export default function AdminPage() {
     const ok = window.confirm("현재 참가자, 제출 정보, 최종 결과를 모두 초기화하시겠습니까?")
     if (!ok) return
 
-    const res = await fetch("/api/admin/game/reset", {
+    const res = await fetch("/api/game/reset", {
       method: "POST",
     })
 
@@ -215,7 +219,7 @@ export default function AdminPage() {
             <InfoCard label="참가자 수" value={String(snapshot.totalPlayers)} />
             <InfoCard label="제출 완료 수" value={String(snapshot.submittedPlayers)} />
             <InfoCard label="현재 시작 시각" value={formatDateTime(snapshot.scheduledStartAt)} />
-            <InfoCard label="현재 게임 길이" value={`${Math.floor(snapshot.durationMs / 60000)}분`} />
+            <InfoCard label="현재 게임 길이" value={snapshot.durationMs ? `${Math.floor(snapshot.durationMs / 60000)}분` : "미정"} />
           </div>
           <div className="mt-4 text-sm text-slate-300">{message || "운영 설정을 진행해 주세요."}</div>
         </section>
@@ -226,6 +230,7 @@ export default function AdminPage() {
             <form className="mt-4 flex flex-col gap-3" onSubmit={handleSetGame}>
               <input
                 type="datetime-local"
+                step="1"
                 value={scheduledStartAt}
                 onChange={(e) => setScheduledStartAt(e.target.value)}
                 className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none"
@@ -388,7 +393,11 @@ function InfoCard({ label, value }: { label: string; value: string }) {
   )
 }
 
-function formatDateTime(value: number) {
+function formatDateTime(value: number | null) {
+  if (value === null) {
+    return "미정"
+  }
+
   return new Date(value).toLocaleString("ko-KR", {
     hour12: false,
   })
@@ -408,5 +417,6 @@ function getDefaultStartDateTimeLocal() {
   const day = String(date.getDate()).padStart(2, "0")
   const hours = String(date.getHours()).padStart(2, "0")
   const minutes = String(date.getMinutes()).padStart(2, "0")
-  return `${year}-${month}-${day}T${hours}:${minutes}`
+  const seconds = String(date.getSeconds()).padStart(2, "0")
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`
 }

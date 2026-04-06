@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useEffect, useMemo, useState } from "react"
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import type { FinalResultEntry, GameSnapshot } from "@/lib/shared/types"
 
 type SubmitResponse = {
@@ -33,11 +33,11 @@ type FinalResultsResponse = {
 }
 
 const initialSnapshot: GameSnapshot = {
-  now: Date.now(),
+  now: 0,
   gameStatus: "SCHEDULED",
-  scheduledStartAt: Date.now(),
-  endAt: Date.now(),
-  durationMs: 30 * 60 * 1000,
+  scheduledStartAt: null,
+  endAt: null,
+  durationMs: null,
   totalPlayers: 0,
   submittedPlayers: 0,
   leaderboard: [],
@@ -54,7 +54,8 @@ export default function HomePage() {
   const [message, setMessage] = useState("")
   const [finalResults, setFinalResults] = useState<FinalResultEntry[]>([])
   const [revealedAnswer, setRevealedAnswer] = useState<string | null>(null)
-  const [clockNow, setClockNow] = useState(Date.now())
+  const [clockNow, setClockNow] = useState(0)
+  const formRef = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
     fetchState()
@@ -154,6 +155,35 @@ export default function HomePage() {
     }
   }
 
+  async function handleWaitCancel() {
+    if (!lockedNickname) {
+      setMessage("대기 등록이 필요합니다.")
+      return
+    }
+
+    const res = await fetch("/api/game/wait", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ userName: lockedNickname }),
+    })
+
+    const data = (await res.json()) as WaitResponse
+
+    if (!data.ok) {
+      setMessage(data.message ?? "대기 취소에 실패했습니다.")
+      return
+    }
+
+    setLockedNickname("")
+    setIsWaiting(false)
+    setMessage("대기가 취소되었습니다.")
+    if (data.snapshot) {
+      setSnapshot(data.snapshot)
+    }
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
 
@@ -164,6 +194,11 @@ export default function HomePage() {
 
     if (!word.trim()) {
       setMessage("제출할 단어를 입력해 주세요.")
+      return
+    }
+
+    if (bestSimilarity === "" || tryCount === "") {
+      setMessage("최고 유사도와 시도 횟수를 모두 입력해 주세요.")
       return
     }
 
@@ -200,7 +235,7 @@ export default function HomePage() {
       return
     }
 
-    const res = await fetch("/api/game/cancel-submit", {
+    const res = await fetch("/api/game/cancle-submit", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -230,6 +265,7 @@ export default function HomePage() {
 
   const timeLabel = useMemo(() => {
     if (snapshot.gameStatus === "RUNNING") {
+      if (snapshot.endAt === null) return "대기중"
       const remain = Math.max(0, snapshot.endAt - clockNow)
       return `남은 시간 ${formatDuration(remain)}`
     }
@@ -238,12 +274,26 @@ export default function HomePage() {
       return "게임 종료"
     }
 
+    if (snapshot.scheduledStartAt === null) {
+      return "대기중"
+    }
+
     const untilStart = Math.max(0, snapshot.scheduledStartAt - clockNow)
     if (snapshot.gameStatus === "COUNTDOWN") {
       return `카운트다운 ${formatDuration(untilStart)}`
     }
 
     return `시작까지 ${formatDuration(untilStart)}`
+  }, [snapshot, clockNow])
+
+  const countdownSecondsLeft = useMemo(() => {
+    if (snapshot.gameStatus === "COUNTDOWN" && snapshot.scheduledStartAt !== null) {
+      return Math.max(0, Math.ceil((snapshot.scheduledStartAt - clockNow) / 1000))
+    }
+    if (snapshot.gameStatus === "RUNNING" && snapshot.endAt !== null) {
+      return Math.max(0, Math.ceil((snapshot.endAt - clockNow) / 1000))
+    }
+    return null
   }, [snapshot, clockNow])
 
   const canSubmit = isWaiting && snapshot.gameStatus === "RUNNING" && !myEntry?.submittedWord
@@ -258,8 +308,8 @@ export default function HomePage() {
             <InfoCard label="게임 상태" value={snapshot.gameStatus} />
             <InfoCard label="시작 시각" value={formatDateTime(snapshot.scheduledStartAt)} />
             <InfoCard label="종료 시각" value={formatDateTime(snapshot.endAt)} />
-            <InfoCard label="게임 길이" value={`${Math.floor(snapshot.durationMs / 60000)}분`} />
-            <InfoCard label="현재 타이머" value={timeLabel} />
+            <InfoCard label="게임 길이" value={snapshot.durationMs ? `${Math.floor(snapshot.durationMs / 60000)}분` : "-"} />
+            <InfoCard label="현재 타이머" value={timeLabel} countdownSecondsLeft={snapshot.gameStatus === "COUNTDOWN" ? countdownSecondsLeft : null} />
           </div>
         </section>
 
@@ -267,7 +317,7 @@ export default function HomePage() {
           <div className="flex flex-col gap-6">
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
               <h2 className="text-xl font-semibold">참가</h2>
-              <form className="mt-4 flex flex-col gap-3" onSubmit={handleWait}>
+              <form ref={formRef} className="mt-4 flex flex-col gap-3" onSubmit={handleWait}>
                 <input
                   value={isWaiting ? lockedNickname : nickname}
                   onChange={(e) => setNickname(e.target.value)}
@@ -276,11 +326,17 @@ export default function HomePage() {
                   className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none"
                 />
                 <button
-                  type="submit"
-                  disabled={isWaiting}
-                  className="rounded-xl bg-blue-600 px-4 py-3 font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                  type="button"
+                  className={`rounded-xl px-4 py-3 font-medium ${isWaiting ? "bg-gray-600 hover:bg-gray-700" : "bg-blue-600 hover:bg-blue-700"}`}
+                  onClick={() => {
+                    if (isWaiting) {
+                      handleWaitCancel()
+                    } else {
+                      formRef.current?.requestSubmit()
+                    }
+                  }}
                 >
-                  {isWaiting ? "대기중" : "대기"}
+                  {isWaiting ? "대기 취소" : "대기"}
                 </button>
               </form>
               <div className="mt-4 text-sm text-slate-300">
@@ -310,7 +366,7 @@ export default function HomePage() {
                 />
                 <input
                   type="number"
-                  min="0"
+                  min="1"
                   step="1"
                   value={tryCount}
                   onChange={(e) => setTryCount(e.target.value)}
@@ -371,7 +427,7 @@ export default function HomePage() {
                       <th className="px-3 py-3 text-left">표시 순서</th>
                       <th className="px-3 py-3 text-left">닉네임</th>
                       <th className="px-3 py-3 text-left">상태</th>
-                      <th className="px-3 py-3 text-left">제출 단어</th>
+                      {snapshot.gameStatus === "ENDED" && <th className="px-3 py-3 text-left">제출 단어</th>}
                       <th className="px-3 py-3 text-left">제출 순서</th>
                       <th className="px-3 py-3 text-left">최고 유사도</th>
                       <th className="px-3 py-3 text-left">시도 횟수</th>
@@ -384,18 +440,18 @@ export default function HomePage() {
                         <td className="px-3 py-3">{entry.rank}</td>
                         <td className="px-3 py-3">{entry.userName}</td>
                         <td className="px-3 py-3">{entry.status}</td>
-                        <td className="px-3 py-3">{entry.submittedWord ?? "-"}</td>
+                        {snapshot.gameStatus === "ENDED" && <td className="px-3 py-3">{entry.submittedWord ?? "-"}</td>}
                         <td className="px-3 py-3">{entry.submitOrder ?? "-"}</td>
                         <td className="px-3 py-3">{entry.bestSimilarity ?? "-"}</td>
                         <td className="px-3 py-3">{entry.tryCount ?? "-"}</td>
                         <td className="px-3 py-3">
-                          {entry.submittedAt ? formatDateTime(entry.submittedAt) : "-"}
+                          {entry.submittedAt ? formatTimeOnly(entry.submittedAt) : "-"}
                         </td>
                       </tr>
                     ))}
                     {snapshot.leaderboard.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
+                        <td colSpan={snapshot.gameStatus === "ENDED" ? 8 : 7} className="px-3 py-8 text-center text-slate-400">
                           아직 대기자가 없습니다.
                         </td>
                       </tr>
@@ -464,9 +520,14 @@ export default function HomePage() {
   )
 }
 
-function InfoCard({ label, value }: { label: string; value: string }) {
+function InfoCard({ label, value, countdownSecondsLeft }: { label: string; value: string; countdownSecondsLeft?: number | null }) {
+  const intensity = countdownSecondsLeft != null && countdownSecondsLeft <= 10 && countdownSecondsLeft >= 0
+    ? Math.max(0, (10 - countdownSecondsLeft) / 10)
+    : 0
+  const bgColor = intensity > 0 ? `rgba(239, 68, 68, ${intensity * 0.5})` : undefined
+
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4" style={{ backgroundColor: bgColor }}>
       <div className="text-sm text-slate-400">{label}</div>
       <div className="mt-2 text-base font-semibold">{value}</div>
     </div>
@@ -482,7 +543,11 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function formatDateTime(value: number) {
+function formatDateTime(value: number | null) {
+  if (value === null) {
+    return "미정"
+  }
+
   return new Date(value).toLocaleString("ko-KR", {
     hour12: false,
   })
@@ -493,4 +558,10 @@ function formatDuration(ms: number) {
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+}
+
+function formatTimeOnly(value: number) {
+  return new Date(value).toLocaleTimeString("ko-KR", {
+    hour12: false,
+  })
 }

@@ -4,7 +4,7 @@ import { sseBroker } from "@/lib/server/sse-broker"
 export const runtime = "nodejs"
 
 export async function POST() {
-  gameStore.endGameEarly()
+  await gameStore.endGameEarly()
   const snapshot = gameStore.getSnapshot()
   await gameStore.persistCurrentState()
   sseBroker.broadcast("game_state_changed", snapshot)

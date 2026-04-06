@@ -1,5 +1,6 @@
 import { persistFinalResults, persistLiveState } from "@/lib/server/persist"
 import { buildFinalResults, buildLiveLeaderboard } from "@/lib/server/ranking"
+import { sseBroker } from "@/lib/server/sse-broker"
 import type {
   ControlRequestBody,
   FinalResultEntry,
@@ -10,28 +11,33 @@ import type {
   SubmitRequestBody,
 } from "@/lib/shared/types"
 
-const DEFAULT_COUNTDOWN_MS = 3 * 60 * 1000
+const DEFAULT_COUNTDOWN_MS = 10 * 1000
 
 class GameStore {
   private config: GameConfig
   private players = new Map<string, Player>()
   private finalResults: FinalResultEntry[] = []
   private submitSequence = 0
+  private previousStatus: GameStatus = "SCHEDULED"
 
   constructor() {
     this.config = this.createInitialConfig()
+    setInterval(() => {
+      const snapshot = this.getSnapshot()
+      if (this.previousStatus !== snapshot.gameStatus) {
+        sseBroker.broadcast("game_state_changed", snapshot)
+        this.previousStatus = snapshot.gameStatus
+      }
+    }, 1000)
   }
 
   private createInitialConfig(): GameConfig {
-    const now = Date.now() + 5 * 60 * 1000
-    const durationMs = 30 * 60 * 1000
-
     return {
       gameId: crypto.randomUUID(),
-      scheduledStartAt: now,
-      endAt: now + durationMs,
+      scheduledStartAt: null,
+      endAt: null,
       countdownMs: DEFAULT_COUNTDOWN_MS,
-      durationMs,
+      durationMs: null,
       revealedAnswerWord: null,
       endedEarly: false,
     }
@@ -42,6 +48,7 @@ class GameStore {
     this.players = new Map()
     this.finalResults = []
     this.submitSequence = 0
+    this.previousStatus = "SCHEDULED"
 
     await persistLiveState(this.getSnapshot())
     await persistFinalResults("", [])
@@ -79,17 +86,32 @@ class GameStore {
 
     this.finalResults = []
     this.submitSequence = 0
+    this.previousStatus = "SCHEDULED"
   }
 
-  endGameEarly() {
+  async endGameEarly() {
     this.config.endAt = Date.now()
     this.config.endedEarly = true
     for (const player of this.players.values()) {
       player.status = "ENDED"
     }
+
+    // 조기 종료 시에도 최종 결과를 계산 (정답 없음)
+    this.finalResults = buildFinalResults(
+      [...this.players.values()],
+      null, // 정답 없음
+      this.config.scheduledStartAt,
+    )
+
+    // 조기 종료 시 정답을 빈 문자열로 저장
+    await persistFinalResults("", this.finalResults)
   }
 
   getStatus(now = Date.now()): GameStatus {
+    if (this.config.scheduledStartAt === null || this.config.endAt === null || this.config.durationMs === null) {
+      return "SCHEDULED"
+    }
+
     if (now >= this.config.endAt) return "ENDED"
     if (now >= this.config.scheduledStartAt) return "RUNNING"
     if (now >= this.config.scheduledStartAt - this.config.countdownMs) return "COUNTDOWN"
@@ -98,19 +120,15 @@ class GameStore {
 
   wait(userName: string) {
     const key = userName.trim()
-    const now = Date.now()
-
     const existing = this.players.get(key)
     if (existing) {
-      existing.status = "WAITING"
-      if (!existing.waitingAt) existing.waitingAt = now
-      return existing
+      throw new Error("이미 등록된 닉네임입니다.")
     }
 
     const player: Player = {
       userName: key,
-      createdAt: now,
-      waitingAt: now,
+      createdAt: Date.now(),
+      waitingAt: Date.now(),
       status: "WAITING",
       submittedWord: null,
       submittedAt: null,
@@ -120,6 +138,17 @@ class GameStore {
     }
 
     this.players.set(key, player)
+    return player
+  }
+
+  waitCancel(userName: string) {
+    const key = userName.trim()
+    const player = this.players.get(key)
+    if (!player) {
+      throw new Error("등록되지 않은 사용자입니다.")
+    }
+
+    this.players.delete(key)
     return player
   }
 
@@ -145,11 +174,14 @@ class GameStore {
     if (!player) throw new Error("대기 상태의 참가자가 아닙니다.")
     if (player.submittedWord) throw new Error("이미 제출했습니다. 수정하려면 제출을 취소해 주세요.")
 
+    const parsedBestSimilarity = parseBestSimilarity(body.bestSimilarity)
+    const parsedTryCount = parseTryCount(body.tryCount)
+
     player.status = "SUBMITTED"
     player.submittedWord = word
     player.submittedAt = now
-    player.bestSimilarity = normalizeNullableNumber(body.bestSimilarity)
-    player.tryCount = normalizeNullableInteger(body.tryCount)
+    player.bestSimilarity = parsedBestSimilarity
+    player.tryCount = parsedTryCount
     this.submitSequence += 1
     player.submitOrder = this.submitSequence
 
@@ -206,13 +238,15 @@ class GameStore {
   }
 
   getSnapshot(now = Date.now()): GameSnapshot {
-    if (now >= this.config.endAt) {
-      for (const player of this.players.values()) {
-        player.status = "ENDED"
-      }
-    } else if (now >= this.config.scheduledStartAt) {
-      for (const player of this.players.values()) {
-        if (player.status === "WAITING") player.status = "PLAYING"
+    if (this.config.scheduledStartAt !== null && this.config.endAt !== null) {
+      if (now >= this.config.endAt) {
+        for (const player of this.players.values()) {
+          player.status = "ENDED"
+        }
+      } else if (now >= this.config.scheduledStartAt) {
+        for (const player of this.players.values()) {
+          if (player.status === "WAITING") player.status = "PLAYING"
+        }
       }
     }
 
@@ -241,6 +275,34 @@ function normalizeNullableInteger(value: unknown): number | null {
   const num = Number(value)
   if (!Number.isFinite(num)) return null
   return Math.trunc(num)
+}
+
+function parseBestSimilarity(value: unknown): number {
+  const raw = String(value ?? "").trim()
+  if (!/^(100(\.0+)?|[0-9]{1,2}(\.[0-9]+)?)$/.test(raw)) {
+    throw new Error("최고 유사도는 0 이상 100 이하의 숫자여야 합니다.")
+  }
+
+  const num = Number(raw)
+  if (!Number.isFinite(num) || num < 0 || num > 100) {
+    throw new Error("최고 유사도는 0 이상 100 이하의 숫자여야 합니다.")
+  }
+
+  return num
+}
+
+function parseTryCount(value: unknown): number {
+  const raw = String(value ?? "").trim()
+  if (!/^[1-9][0-9]*$/.test(raw)) {
+    throw new Error("시도 횟수는 1 이상의 정수여야 합니다.")
+  }
+
+  const num = Number(raw)
+  if (!Number.isInteger(num) || num < 1) {
+    throw new Error("시도 횟수는 1 이상의 정수여야 합니다.")
+  }
+
+  return num
 }
 
 declare global {

@@ -28,7 +28,7 @@ export interface LeaderboardEntry {
 export interface FinalResultEntry {
   rank: number
   userName: string
-  resultType: "CORRECT" | "WRONG" | "NO_SUBMISSION"
+  resultType: "CORRECT" | "WRONG" | "NO_SUBMISSION" | "EARLY_ENDED"
   submittedWord: string | null
   submittedAt: number | null
   elapsedMs: number | null
@@ -40,10 +40,10 @@ export interface FinalResultEntry {
 
 export interface GameConfig {
   gameId: string
-  scheduledStartAt: number
-  endAt: number
+  scheduledStartAt: number | null
+  endAt: number | null
   countdownMs: number
-  durationMs: number
+  durationMs: number | null
   revealedAnswerWord: string | null
   endedEarly: boolean
 }
@@ -51,9 +51,9 @@ export interface GameConfig {
 export interface GameSnapshot {
   now: number
   gameStatus: GameStatus
-  scheduledStartAt: number
-  endAt: number
-  durationMs: number
+  scheduledStartAt: number | null
+  endAt: number | null
+  durationMs: number | null
   totalPlayers: number
   submittedPlayers: number
   leaderboard: LeaderboardEntry[]

@@ -1,2 +1,2 @@
 rank,userName,resultType,submittedWord,submittedAt,elapsedMs,bestSimilarity,tryCount,score,submitOrder
-1,"김기태",CORRECT,"강아지",1775464277739,17739,,,999982261,1
+1,"김기태",WRONG,"15",1775480493265,3265,15,15,100000.42892902574,1

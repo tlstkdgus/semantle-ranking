@@ -33,7 +33,7 @@ export function buildLiveLeaderboard(players: Player[]): LeaderboardEntry[] {
   }))
 }
 
-export function buildFinalResults(players: Player[], answerWord: string, scheduledStartAt: number): FinalResultEntry[] {
+export function buildFinalResults(players: Player[], answerWord: string | null, scheduledStartAt: number | null): FinalResultEntry[] {
   const results: FinalResultEntry[] = players.map((player) => {
     if (!player.submittedWord) {
       return {
@@ -45,21 +45,36 @@ export function buildFinalResults(players: Player[], answerWord: string, schedul
         elapsedMs: null,
         bestSimilarity: player.bestSimilarity,
         tryCount: player.tryCount,
-        score: -1_000_000_000,
+        score: 1_000_000_000,
         submitOrder: player.submitOrder,
       }
     }
 
-    const isCorrect = player.submittedWord === answerWord
-    const elapsedMs = player.submittedAt ? Math.max(0, player.submittedAt - scheduledStartAt) : null
+    const isCorrect = answerWord ? player.submittedWord === answerWord : false
+    const elapsedMs = player.submittedAt && scheduledStartAt !== null ? Math.max(0, player.submittedAt - scheduledStartAt) : null
     const penalty = toPenalty(elapsedMs, player.tryCount)
-    const score = -penalty
+    const score = penalty
 
     if (isCorrect) {
       return {
         rank: 0,
         userName: player.userName,
         resultType: "CORRECT",
+        submittedWord: player.submittedWord,
+        submittedAt: player.submittedAt,
+        elapsedMs,
+        bestSimilarity: player.bestSimilarity,
+        tryCount: player.tryCount,
+        score,
+        submitOrder: player.submitOrder,
+      }
+    }
+
+    if (answerWord === null) {
+      return {
+        rank: 0,
+        userName: player.userName,
+        resultType: "EARLY_ENDED",
         submittedWord: player.submittedWord,
         submittedAt: player.submittedAt,
         elapsedMs,
@@ -79,18 +94,18 @@ export function buildFinalResults(players: Player[], answerWord: string, schedul
       elapsedMs,
       bestSimilarity: player.bestSimilarity,
       tryCount: player.tryCount,
-      score,
+      score: score + 100000,
       submitOrder: player.submitOrder,
     }
   })
 
   results.sort((a, b) => {
-    const order = { CORRECT: 0, WRONG: 1, NO_SUBMISSION: 2 }
+    const order = { CORRECT: 0, WRONG: 1, EARLY_ENDED: 2, NO_SUBMISSION: 3 }
     if (order[a.resultType] !== order[b.resultType]) {
       return order[a.resultType] - order[b.resultType]
     }
 
-    if (b.score !== a.score) return b.score - a.score
+    if (a.score !== b.score) return a.score - b.score
 
     if ((a.tryCount ?? Number.MAX_SAFE_INTEGER) !== (b.tryCount ?? Number.MAX_SAFE_INTEGER)) {
       return (a.tryCount ?? Number.MAX_SAFE_INTEGER) - (b.tryCount ?? Number.MAX_SAFE_INTEGER)
