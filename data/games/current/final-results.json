@@ -1,0 +1,17 @@
+{
+  "answerWord": "강아지",
+  "finalResults": [
+    {
+      "rank": 1,
+      "userName": "김기태",
+      "resultType": "CORRECT",
+      "submittedWord": "강아지",
+      "submittedAt": 1775464277739,
+      "elapsedMs": 17739,
+      "bestSimilarity": null,
+      "tryCount": null,
+      "score": 999982261,
+      "submitOrder": 1
+    }
+  ]
+}

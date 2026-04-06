@@ -1,0 +1,22 @@
+{
+  "now": 1775464312898,
+  "gameStatus": "ENDED",
+  "scheduledStartAt": 1775464260000,
+  "endAt": 1775464312898,
+  "durationMs": 60000,
+  "totalPlayers": 1,
+  "submittedPlayers": 1,
+  "leaderboard": [
+    {
+      "rank": 1,
+      "userName": "김기태",
+      "status": "ENDED",
+      "waitingAt": 1775464266571,
+      "submittedWord": "강아지",
+      "submittedAt": 1775464277739,
+      "bestSimilarity": null,
+      "tryCount": null,
+      "submitOrder": 1
+    }
+  ]
+}

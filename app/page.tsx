@@ -1,0 +1,496 @@
+"use client"
+
+import { FormEvent, useEffect, useMemo, useState } from "react"
+import type { FinalResultEntry, GameSnapshot } from "@/lib/shared/types"
+
+type SubmitResponse = {
+  ok: boolean
+  message?: string
+  snapshot?: GameSnapshot
+}
+
+type WaitResponse = {
+  ok: boolean
+  message?: string
+  snapshot?: GameSnapshot
+  player?: {
+    userName: string
+    status: string
+    waitingAt: number | null
+  }
+}
+
+type CancelSubmitResponse = {
+  ok: boolean
+  message?: string
+  snapshot?: GameSnapshot
+}
+
+type FinalResultsResponse = {
+  ok: boolean
+  answerWord: string | null
+  finalResults: FinalResultEntry[]
+}
+
+const initialSnapshot: GameSnapshot = {
+  now: Date.now(),
+  gameStatus: "SCHEDULED",
+  scheduledStartAt: Date.now(),
+  endAt: Date.now(),
+  durationMs: 30 * 60 * 1000,
+  totalPlayers: 0,
+  submittedPlayers: 0,
+  leaderboard: [],
+}
+
+export default function HomePage() {
+  const [snapshot, setSnapshot] = useState<GameSnapshot>(initialSnapshot)
+  const [nickname, setNickname] = useState("")
+  const [lockedNickname, setLockedNickname] = useState("")
+  const [isWaiting, setIsWaiting] = useState(false)
+  const [word, setWord] = useState("")
+  const [bestSimilarity, setBestSimilarity] = useState("")
+  const [tryCount, setTryCount] = useState("")
+  const [message, setMessage] = useState("")
+  const [finalResults, setFinalResults] = useState<FinalResultEntry[]>([])
+  const [revealedAnswer, setRevealedAnswer] = useState<string | null>(null)
+  const [clockNow, setClockNow] = useState(Date.now())
+
+  useEffect(() => {
+    fetchState()
+    fetchFinalResults()
+
+    const eventSource = new EventSource("/api/events")
+
+    const handleSnapshot = (event: MessageEvent) => {
+      const data = JSON.parse(event.data) as GameSnapshot
+      setSnapshot(data)
+    }
+
+    const handleAnswerRevealed = (event: MessageEvent) => {
+      const data = JSON.parse(event.data) as {
+        answerWord: string
+        finalResults: FinalResultEntry[]
+      }
+      setRevealedAnswer(data.answerWord)
+      setFinalResults(data.finalResults)
+      setMessage("정답이 등록되어 최종 결과가 확정되었습니다.")
+    }
+
+    eventSource.addEventListener("snapshot", handleSnapshot)
+    eventSource.addEventListener("leaderboard_updated", handleSnapshot)
+    eventSource.addEventListener("game_state_changed", handleSnapshot)
+    eventSource.addEventListener("answer_revealed", handleAnswerRevealed)
+
+    eventSource.onerror = () => {
+      setMessage("실시간 연결이 일시적으로 불안정합니다. 자동으로 재연결을 시도합니다.")
+    }
+
+    return () => {
+      eventSource.removeEventListener("snapshot", handleSnapshot)
+      eventSource.removeEventListener("leaderboard_updated", handleSnapshot)
+      eventSource.removeEventListener("game_state_changed", handleSnapshot)
+      eventSource.removeEventListener("answer_revealed", handleAnswerRevealed)
+      eventSource.close()
+    }
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setClockNow(Date.now())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [])
+
+  async function fetchState() {
+    const res = await fetch("/api/game/state", { cache: "no-store" })
+    const data = await res.json()
+    if (data?.snapshot) {
+      setSnapshot(data.snapshot)
+    }
+  }
+
+  async function fetchFinalResults() {
+    const res = await fetch("/api/game/final-results", { cache: "no-store" })
+    const data = (await res.json()) as FinalResultsResponse
+    if (data.ok) {
+      setRevealedAnswer(data.answerWord)
+      setFinalResults(data.finalResults ?? [])
+    }
+  }
+
+  async function handleWait(e: FormEvent) {
+    e.preventDefault()
+
+    const trimmed = nickname.trim()
+    if (!trimmed) {
+      setMessage("닉네임을 입력해 주세요.")
+      return
+    }
+
+    const res = await fetch("/api/game/wait", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ userName: trimmed }),
+    })
+
+    const data = (await res.json()) as WaitResponse
+
+    if (!data.ok) {
+      setMessage(data.message ?? "대기 등록에 실패했습니다.")
+      return
+    }
+
+    setLockedNickname(trimmed)
+    setIsWaiting(true)
+    setMessage("대기 등록이 완료되었습니다.")
+    if (data.snapshot) {
+      setSnapshot(data.snapshot)
+    }
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+
+    if (!lockedNickname) {
+      setMessage("먼저 닉네임으로 대기 등록을 해주세요.")
+      return
+    }
+
+    if (!word.trim()) {
+      setMessage("제출할 단어를 입력해 주세요.")
+      return
+    }
+
+    const res = await fetch("/api/game/submit", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userName: lockedNickname,
+        word: word.trim(),
+        bestSimilarity: bestSimilarity === "" ? null : Number(bestSimilarity),
+        tryCount: tryCount === "" ? null : Number(tryCount),
+      }),
+    })
+
+    const data = (await res.json()) as SubmitResponse
+
+    if (!data.ok) {
+      setMessage(data.message ?? "제출에 실패했습니다.")
+      return
+    }
+
+    setMessage("제출이 기록되었습니다.")
+    setWord("")
+    if (data.snapshot) {
+      setSnapshot(data.snapshot)
+    }
+  }
+
+  async function handleCancelSubmit() {
+    if (!lockedNickname) {
+      setMessage("닉네임 대기 등록이 필요합니다.")
+      return
+    }
+
+    const res = await fetch("/api/game/cancel-submit", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userName: lockedNickname,
+      }),
+    })
+
+    const data = (await res.json()) as CancelSubmitResponse
+
+    if (!data.ok) {
+      setMessage(data.message ?? "제출 취소에 실패했습니다.")
+      return
+    }
+
+    setMessage("제출이 취소되었습니다.")
+    if (data.snapshot) {
+      setSnapshot(data.snapshot)
+    }
+  }
+
+  const myEntry = useMemo(() => {
+    if (!lockedNickname) return null
+    return snapshot.leaderboard.find((entry) => entry.userName === lockedNickname) ?? null
+  }, [lockedNickname, snapshot.leaderboard])
+
+  const timeLabel = useMemo(() => {
+    if (snapshot.gameStatus === "RUNNING") {
+      const remain = Math.max(0, snapshot.endAt - clockNow)
+      return `남은 시간 ${formatDuration(remain)}`
+    }
+
+    if (snapshot.gameStatus === "ENDED") {
+      return "게임 종료"
+    }
+
+    const untilStart = Math.max(0, snapshot.scheduledStartAt - clockNow)
+    if (snapshot.gameStatus === "COUNTDOWN") {
+      return `카운트다운 ${formatDuration(untilStart)}`
+    }
+
+    return `시작까지 ${formatDuration(untilStart)}`
+  }, [snapshot, clockNow])
+
+  const canSubmit = isWaiting && snapshot.gameStatus === "RUNNING" && !myEntry?.submittedWord
+  const hasSubmitted = !!myEntry?.submittedWord
+
+  return (
+    <main className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8">
+        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+          <h1 className="text-3xl font-bold">단어 기록 보드</h1>
+          <div className="mt-4 grid gap-3 md:grid-cols-5">
+            <InfoCard label="게임 상태" value={snapshot.gameStatus} />
+            <InfoCard label="시작 시각" value={formatDateTime(snapshot.scheduledStartAt)} />
+            <InfoCard label="종료 시각" value={formatDateTime(snapshot.endAt)} />
+            <InfoCard label="게임 길이" value={`${Math.floor(snapshot.durationMs / 60000)}분`} />
+            <InfoCard label="현재 타이머" value={timeLabel} />
+          </div>
+        </section>
+
+        <section className="grid gap-6 lg:grid-cols-[380px_minmax(0,1fr)]">
+          <div className="flex flex-col gap-6">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+              <h2 className="text-xl font-semibold">참가</h2>
+              <form className="mt-4 flex flex-col gap-3" onSubmit={handleWait}>
+                <input
+                  value={isWaiting ? lockedNickname : nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  disabled={isWaiting}
+                  placeholder="닉네임 입력"
+                  className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={isWaiting}
+                  className="rounded-xl bg-blue-600 px-4 py-3 font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isWaiting ? "대기중" : "대기"}
+                </button>
+              </form>
+              <div className="mt-4 text-sm text-slate-300">
+                {message || "대기 후 게임이 시작되면 제출할 수 있습니다."}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+              <h2 className="text-xl font-semibold">단어 제출</h2>
+              <form className="mt-4 flex flex-col gap-3" onSubmit={handleSubmit}>
+                <input
+                  value={word}
+                  onChange={(e) => setWord(e.target.value)}
+                  disabled={!canSubmit}
+                  placeholder={canSubmit ? "단어 입력" : "제출 가능 상태가 아닙니다"}
+                  className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={bestSimilarity}
+                  onChange={(e) => setBestSimilarity(e.target.value)}
+                  disabled={!canSubmit}
+                  placeholder="최고 유사도 입력"
+                  className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={tryCount}
+                  onChange={(e) => setTryCount(e.target.value)}
+                  disabled={!canSubmit}
+                  placeholder="시도 횟수 입력"
+                  className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none"
+                />
+                <div className="grid gap-3 md:grid-cols-2">
+                  <button
+                    type="submit"
+                    disabled={!canSubmit}
+                    className="rounded-xl bg-emerald-600 px-4 py-3 font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    제출
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelSubmit}
+                    disabled={!hasSubmitted || snapshot.gameStatus !== "RUNNING"}
+                    className="rounded-xl bg-amber-600 px-4 py-3 font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    제출 취소
+                  </button>
+                </div>
+              </form>
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+              <h2 className="text-xl font-semibold">내 상태</h2>
+              <div className="mt-4 grid gap-3">
+                <InfoRow label="닉네임" value={lockedNickname || "-"} />
+                <InfoRow label="상태" value={myEntry?.status ?? "-"} />
+                <InfoRow label="제출 단어" value={myEntry?.submittedWord ?? "-"} />
+                <InfoRow label="제출 순서" value={String(myEntry?.submitOrder ?? "-")} />
+                <InfoRow label="최고 유사도" value={myEntry?.bestSimilarity !== null && myEntry?.bestSimilarity !== undefined ? String(myEntry.bestSimilarity) : "-"} />
+                <InfoRow label="시도 횟수" value={myEntry?.tryCount !== null && myEntry?.tryCount !== undefined ? String(myEntry.tryCount) : "-"} />
+                <InfoRow
+                  label="제출 시각"
+                  value={myEntry?.submittedAt ? formatDateTime(myEntry.submittedAt) : "-"}
+                />
+              </div>
+            </section>
+          </div>
+
+          <div className="flex flex-col gap-6">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">실시간 제출 현황</h2>
+                <div className="text-sm text-slate-300">
+                  참가자 {snapshot.totalPlayers}명 / 제출 완료 {snapshot.submittedPlayers}명
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-300">
+                      <th className="px-3 py-3 text-left">표시 순서</th>
+                      <th className="px-3 py-3 text-left">닉네임</th>
+                      <th className="px-3 py-3 text-left">상태</th>
+                      <th className="px-3 py-3 text-left">제출 단어</th>
+                      <th className="px-3 py-3 text-left">제출 순서</th>
+                      <th className="px-3 py-3 text-left">최고 유사도</th>
+                      <th className="px-3 py-3 text-left">시도 횟수</th>
+                      <th className="px-3 py-3 text-left">제출 시각</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {snapshot.leaderboard.map((entry) => (
+                      <tr key={entry.userName} className="border-b border-slate-900">
+                        <td className="px-3 py-3">{entry.rank}</td>
+                        <td className="px-3 py-3">{entry.userName}</td>
+                        <td className="px-3 py-3">{entry.status}</td>
+                        <td className="px-3 py-3">{entry.submittedWord ?? "-"}</td>
+                        <td className="px-3 py-3">{entry.submitOrder ?? "-"}</td>
+                        <td className="px-3 py-3">{entry.bestSimilarity ?? "-"}</td>
+                        <td className="px-3 py-3">{entry.tryCount ?? "-"}</td>
+                        <td className="px-3 py-3">
+                          {entry.submittedAt ? formatDateTime(entry.submittedAt) : "-"}
+                        </td>
+                      </tr>
+                    ))}
+                    {snapshot.leaderboard.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
+                          아직 대기자가 없습니다.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">최종 결과</h2>
+                <div className="text-sm text-slate-300">
+                  정답 {revealedAnswer ? `"${revealedAnswer}"` : "미공개"}
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-300">
+                      <th className="px-3 py-3 text-left">순위</th>
+                      <th className="px-3 py-3 text-left">닉네임</th>
+                      <th className="px-3 py-3 text-left">결과</th>
+                      <th className="px-3 py-3 text-left">제출 단어</th>
+                      <th className="px-3 py-3 text-left">제출 시각</th>
+                      <th className="px-3 py-3 text-left">경과 시간</th>
+                      <th className="px-3 py-3 text-left">최고 유사도</th>
+                      <th className="px-3 py-3 text-left">시도 횟수</th>
+                      <th className="px-3 py-3 text-left">점수</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {finalResults.map((entry) => (
+                      <tr key={`${entry.userName}-${entry.resultType}`} className="border-b border-slate-900">
+                        <td className="px-3 py-3">{entry.rank}</td>
+                        <td className="px-3 py-3">{entry.userName}</td>
+                        <td className="px-3 py-3">{entry.resultType}</td>
+                        <td className="px-3 py-3">{entry.submittedWord ?? "-"}</td>
+                        <td className="px-3 py-3">
+                          {entry.submittedAt ? formatDateTime(entry.submittedAt) : "-"}
+                        </td>
+                        <td className="px-3 py-3">
+                          {entry.elapsedMs !== null ? formatDuration(entry.elapsedMs) : "-"}
+                        </td>
+                        <td className="px-3 py-3">{entry.bestSimilarity ?? "-"}</td>
+                        <td className="px-3 py-3">{entry.tryCount ?? "-"}</td>
+                        <td className="px-3 py-3">{entry.score}</td>
+                      </tr>
+                    ))}
+                    {finalResults.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="px-3 py-8 text-center text-slate-400">
+                          아직 최종 결과가 확정되지 않았습니다.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+      </div>
+    </main>
+  )
+}
+
+function InfoCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+      <div className="text-sm text-slate-400">{label}</div>
+      <div className="mt-2 text-base font-semibold">{value}</div>
+    </div>
+  )
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950 px-4 py-3">
+      <span className="text-slate-400">{label}</span>
+      <span className="font-medium">{value}</span>
+    </div>
+  )
+}
+
+function formatDateTime(value: number) {
+  return new Date(value).toLocaleString("ko-KR", {
+    hour12: false,
+  })
+}
+
+function formatDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+}
