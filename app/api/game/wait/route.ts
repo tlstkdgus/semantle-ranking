@@ -7,6 +7,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const userName = String(body.userName ?? "").trim()
+    console.log(request);
 
     if (!userName) {
       return Response.json({ ok: false, message: "userName은 필수입니다." }, { status: 400 })

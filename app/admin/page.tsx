@@ -38,7 +38,7 @@ export default function AdminPage() {
     fetchState()
     fetchFinalResults()
 
-    const eventSource = new EventSource("/api/events")
+    const eventSource = new EventSource(`${process.env.NEXT_PUBLIC_API_URL}/api/events`)
 
     const handleSnapshot = (event: MessageEvent) => {
       const data = JSON.parse(event.data) as GameSnapshot
@@ -74,7 +74,7 @@ export default function AdminPage() {
   }, [])
 
   async function fetchState() {
-    const res = await fetch("/api/game/state", { cache: "no-store" })
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/state`, { cache: "no-store" })
     const data = (await res.json()) as StateResponse
     if (data.ok) {
       setSnapshot(data.snapshot)
@@ -82,7 +82,7 @@ export default function AdminPage() {
   }
 
   async function fetchFinalResults() {
-    const res = await fetch("/api/game/final-results", { cache: "no-store" })
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/final-results`, { cache: "no-store" })
     const data = (await res.json()) as FinalResultsResponse
     if (data.ok) {
       setRevealedAnswer(data.answerWord)
@@ -110,7 +110,7 @@ export default function AdminPage() {
       return
     }
 
-    const res = await fetch("/api/game/control", {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/control`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -133,7 +133,7 @@ export default function AdminPage() {
   }
 
   async function handleEndEarly() {
-    const res = await fetch("/api/game/end", {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/end`, {
       method: "POST",
     })
 
@@ -156,7 +156,7 @@ export default function AdminPage() {
       return
     }
 
-    const res = await fetch("/api/game/reveal-answer", {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/reveal-answer`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -182,7 +182,7 @@ export default function AdminPage() {
     const ok = window.confirm("현재 참가자, 제출 정보, 최종 결과를 모두 초기화하시겠습니까?")
     if (!ok) return
 
-    const res = await fetch("/api/game/reset", {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/reset`, {
       method: "POST",
     })
 

@@ -61,7 +61,7 @@ export default function HomePage() {
     fetchState()
     fetchFinalResults()
 
-    const eventSource = new EventSource("/api/events")
+    const eventSource = new EventSource(`${process.env.NEXT_PUBLIC_API_URL}/api/events`)
 
     const handleSnapshot = (event: MessageEvent) => {
       const data = JSON.parse(event.data) as GameSnapshot
@@ -107,7 +107,7 @@ export default function HomePage() {
   }, [])
 
   async function fetchState() {
-    const res = await fetch("/api/game/state", { cache: "no-store" })
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/state`, { cache: "no-store" })
     const data = await res.json()
     if (data?.snapshot) {
       setSnapshot(data.snapshot)
@@ -115,7 +115,7 @@ export default function HomePage() {
   }
 
   async function fetchFinalResults() {
-    const res = await fetch("/api/game/final-results", { cache: "no-store" })
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/final-results`, { cache: "no-store" })
     const data = (await res.json()) as FinalResultsResponse
     if (data.ok) {
       setRevealedAnswer(data.answerWord)
@@ -132,7 +132,7 @@ export default function HomePage() {
       return
     }
 
-    const res = await fetch("/api/game/wait", {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/wait`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -141,6 +141,7 @@ export default function HomePage() {
     })
 
     const data = (await res.json()) as WaitResponse
+    console.log(data);
 
     if (!data.ok) {
       setMessage(data.message ?? "대기 등록에 실패했습니다.")
@@ -161,7 +162,7 @@ export default function HomePage() {
       return
     }
 
-    const res = await fetch("/api/game/wait", {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/wait`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
@@ -170,6 +171,7 @@ export default function HomePage() {
     })
 
     const data = (await res.json()) as WaitResponse
+    console.log(data)
 
     if (!data.ok) {
       setMessage(data.message ?? "대기 취소에 실패했습니다.")
@@ -202,7 +204,7 @@ export default function HomePage() {
       return
     }
 
-    const res = await fetch("/api/game/submit", {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/submit`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -235,7 +237,7 @@ export default function HomePage() {
       return
     }
 
-    const res = await fetch("/api/game/cancle-submit", {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/cancle-submit`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -366,6 +368,7 @@ export default function HomePage() {
                     if (isWaiting) {
                       handleWaitCancel()
                     } else {
+                      console.log("clicked")
                       formRef.current?.requestSubmit()
                     }
                   }}
