@@ -299,6 +299,40 @@ export default function HomePage() {
   const canSubmit = isWaiting && snapshot.gameStatus === "RUNNING" && !myEntry?.submittedWord
   const hasSubmitted = !!myEntry?.submittedWord
 
+  async function downloadResultsCSV() {
+    // CSV 헤더 정의
+    const headers = ["순위", "닉네임", "결과", "제출 단어", "제출 시각", "경과 시간", "최고 유사도", "시도 횟수", "점수"]
+
+    // CSV 행 생성
+    const rows = finalResults.map((entry) => [
+      entry.rank,
+      entry.userName,
+      entry.resultType,
+      entry.submittedWord ?? "",
+      entry.submittedAt ? formatDateTime(entry.submittedAt) : "",
+      entry.elapsedMs !== null ? formatDuration(entry.elapsedMs) : "",
+      entry.bestSimilarity ?? "",
+      entry.tryCount ?? "",
+      entry.score,
+    ])
+
+    // CSV 컨텐트 생성 (따옴표와 쉼표 이스케이핑)
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n")
+
+    // UTF-8 BOM을 추가 (한글 깨짐 방지)
+    const bom = new Uint8Array([0xef, 0xbb, 0xbf])
+    const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" })
+
+    // 다운로드
+    const link = document.createElement("a")
+    link.href = URL.createObjectURL(blob)
+    link.download = `semantle-결과-${new Date().toISOString().split("T")[0]}.csv`
+    link.click()
+    URL.revokeObjectURL(link.href)
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8">
@@ -464,8 +498,18 @@ export default function HomePage() {
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold">최종 결과</h2>
-                <div className="text-sm text-slate-300">
-                  정답 {revealedAnswer ? `"${revealedAnswer}"` : "미공개"}
+                <div className="flex items-center gap-4">
+                  <div className="text-sm text-slate-300">
+                    정답 {revealedAnswer ? `"${revealedAnswer}"` : "미공개"}
+                  </div>
+                  {revealedAnswer && finalResults.length > 0 && (
+                    <button
+                      onClick={downloadResultsCSV}
+                      className="rounded-lg bg-indigo-600 px-3 py-1 text-sm font-medium hover:bg-indigo-700"
+                    >
+                      CSV 다운로드
+                    </button>
+                  )}
                 </div>
               </div>
 

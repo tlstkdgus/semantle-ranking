@@ -40,7 +40,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# data
-/data
-.csv
-.json
+# data files and generated results
+/data/
+*.csv
+*.json

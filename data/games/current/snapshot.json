@@ -1,21 +1,21 @@
 {
-  "now": 1775480498127,
+  "now": 1775523346190,
   "gameStatus": "ENDED",
-  "scheduledStartAt": 1775480490000,
-  "endAt": 1775480498124,
+  "scheduledStartAt": 1775523300000,
+  "endAt": 1775523346185,
   "durationMs": 1800000,
   "totalPlayers": 1,
   "submittedPlayers": 1,
   "leaderboard": [
     {
       "rank": 1,
-      "userName": "김기태",
+      "userName": "111",
       "status": "ENDED",
-      "waitingAt": 1775480483418,
-      "submittedWord": "15",
-      "submittedAt": 1775480493265,
-      "bestSimilarity": 15,
-      "tryCount": 15,
+      "waitingAt": 1775523321675,
+      "submittedWord": "1",
+      "submittedAt": 1775523343768,
+      "bestSimilarity": 1,
+      "tryCount": 1,
       "submitOrder": 1
     }
   ]

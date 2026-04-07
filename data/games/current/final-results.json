@@ -1,16 +1,16 @@
 {
-  "answerWord": "7",
+  "answerWord": "1",
   "finalResults": [
     {
       "rank": 1,
-      "userName": "김기태",
-      "resultType": "WRONG",
-      "submittedWord": "15",
-      "submittedAt": 1775480493265,
-      "elapsedMs": 3265,
-      "bestSimilarity": 15,
-      "tryCount": 15,
-      "score": 100000.42892902574,
+      "userName": "111",
+      "resultType": "CORRECT",
+      "submittedWord": "1",
+      "submittedAt": 1775523343768,
+      "elapsedMs": 43768,
+      "bestSimilarity": 1,
+      "tryCount": 1,
+      "score": 0.6779588498693445,
       "submitOrder": 1
     }
   ]
