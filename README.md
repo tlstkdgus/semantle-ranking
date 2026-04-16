@@ -24,6 +24,8 @@ ADMIN_PASSWORD=비밀번호
 | 참가자 | `http://서버IP:3000` |
 | 관리자 | `http://서버IP:3000/admin` |
 
+서버 주소 확인법 : ipconfig -> IPV4 주소 입력 
+
 ## 주요 기능
 
 ### 참가자
