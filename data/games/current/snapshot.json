@@ -1,22 +1,10 @@
 {
-  "now": 1775528586594,
-  "gameStatus": "ENDED",
-  "scheduledStartAt": 1775528580000,
-  "endAt": 1775528586586,
-  "durationMs": 1800000,
-  "totalPlayers": 1,
-  "submittedPlayers": 1,
-  "leaderboard": [
-    {
-      "rank": 1,
-      "userName": "대기",
-      "status": "ENDED",
-      "waitingAt": 1775528539880,
-      "submittedWord": "1",
-      "submittedAt": 1775528583281,
-      "bestSimilarity": 1,
-      "tryCount": 1,
-      "submitOrder": 1
-    }
-  ]
+  "now": 1776132535012,
+  "gameStatus": "SCHEDULED",
+  "scheduledStartAt": null,
+  "endAt": null,
+  "durationMs": null,
+  "totalPlayers": 0,
+  "submittedPlayers": 0,
+  "leaderboard": []
 }

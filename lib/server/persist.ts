@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, readdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import type { FinalResultEntry, GameSnapshot } from "@/lib/shared/types"
 
@@ -60,6 +60,20 @@ export async function persistFinalResults(answerWord: string, finalResults: Fina
   ].join("\n")
 
   await writeFile(path.join(DATA_DIR, "final-results.csv"), csv, "utf-8")
+}
+
+export async function archiveGame(gameId: string) {
+  const archiveDir = path.join(process.cwd(), "data", "games", gameId)
+  try {
+    const files = await readdir(DATA_DIR)
+    if (files.length === 0) return
+    await mkdir(archiveDir, { recursive: true })
+    for (const file of files) {
+      await copyFile(path.join(DATA_DIR, file), path.join(archiveDir, file))
+    }
+  } catch {
+    // current 디렉토리가 없으면 아카이브 생략
+  }
 }
 
 function csvEscape(value: string) {

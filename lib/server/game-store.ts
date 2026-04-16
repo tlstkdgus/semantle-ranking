@@ -1,4 +1,6 @@
-import { persistFinalResults, persistLiveState } from "@/lib/server/persist"
+import { readFile } from "node:fs/promises"
+import path from "node:path"
+import { archiveGame, persistFinalResults, persistLiveState } from "@/lib/server/persist"
 import { buildFinalResults, buildLiveLeaderboard } from "@/lib/server/ranking"
 import { sseBroker } from "@/lib/server/sse-broker"
 import type {
@@ -12,6 +14,7 @@ import type {
 } from "@/lib/shared/types"
 
 const DEFAULT_COUNTDOWN_MS = 10 * 1000
+const DATA_DIR = path.join(process.cwd(), "data", "games", "current")
 
 class GameStore {
   private config: GameConfig
@@ -43,7 +46,72 @@ class GameStore {
     }
   }
 
+  // 플레이어 상태를 시간 기준으로 동기화 (getSnapshot의 부수효과 제거를 위해 분리)
+  private syncPlayerStatuses(now: number) {
+    if (this.config.scheduledStartAt !== null && this.config.endAt !== null) {
+      if (now >= this.config.endAt) {
+        for (const player of this.players.values()) {
+          if (player.status !== "ENDED") player.status = "ENDED"
+        }
+      } else if (now >= this.config.scheduledStartAt) {
+        for (const player of this.players.values()) {
+          if (player.status === "WAITING") player.status = "PLAYING"
+        }
+      }
+    }
+  }
+
+  async loadFromDisk() {
+    try {
+      const snapshotContent = await readFile(path.join(DATA_DIR, "snapshot.json"), "utf-8")
+      const snapshot: GameSnapshot = JSON.parse(snapshotContent)
+
+      if (snapshot.scheduledStartAt !== null && snapshot.endAt !== null && snapshot.durationMs !== null) {
+        this.config.scheduledStartAt = snapshot.scheduledStartAt
+        this.config.endAt = snapshot.endAt
+        this.config.durationMs = snapshot.durationMs
+
+        for (const entry of snapshot.leaderboard) {
+          this.players.set(entry.userName, {
+            userName: entry.userName,
+            createdAt: entry.waitingAt ?? snapshot.now,
+            waitingAt: entry.waitingAt,
+            status: entry.status,
+            submittedWord: entry.submittedWord,
+            submittedAt: entry.submittedAt,
+            bestSimilarity: entry.bestSimilarity,
+            tryCount: entry.tryCount,
+            submitOrder: entry.submitOrder,
+          })
+          if (entry.submitOrder !== null && entry.submitOrder > this.submitSequence) {
+            this.submitSequence = entry.submitOrder
+          }
+        }
+
+        // 게임 설정이 복구된 경우에만 최종 결과도 복구
+        // (설정 없이 final-results만 불러오면 이전 게임 결과가 노출됨)
+        try {
+          const finalContent = await readFile(path.join(DATA_DIR, "final-results.json"), "utf-8")
+          const finalData = JSON.parse(finalContent)
+          if (finalData.answerWord) {
+            this.config.revealedAnswerWord = finalData.answerWord
+          }
+          if (Array.isArray(finalData.finalResults)) {
+            this.finalResults = finalData.finalResults
+          }
+        } catch {
+          // final-results 없으면 빈 상태 유지
+        }
+      }
+    } catch {
+      // snapshot 없으면 새 게임으로 시작
+    }
+  }
+
   async reset() {
+    // 현재 게임 데이터 아카이브
+    await archiveGame(this.config.gameId)
+
     this.config = this.createInitialConfig()
     this.players = new Map()
     this.finalResults = []
@@ -96,14 +164,12 @@ class GameStore {
       player.status = "ENDED"
     }
 
-    // 조기 종료 시에도 최종 결과를 계산 (정답 없음)
     this.finalResults = buildFinalResults(
       [...this.players.values()],
-      null, // 정답 없음
+      null,
       this.config.scheduledStartAt,
     )
 
-    // 조기 종료 시 정답을 빈 문자열로 저장
     await persistFinalResults("", this.finalResults)
   }
 
@@ -142,6 +208,11 @@ class GameStore {
   }
 
   waitCancel(userName: string) {
+    const status = this.getStatus()
+    if (status === "ENDED") {
+      throw new Error("게임이 종료된 후에는 대기를 취소할 수 없습니다.")
+    }
+
     const key = userName.trim()
     const player = this.players.get(key)
     if (!player) {
@@ -154,6 +225,8 @@ class GameStore {
 
   async submit(body: SubmitRequestBody) {
     const now = Date.now()
+    // 제출 전에 플레이어 상태 동기화 (WAITING → PLAYING 등)
+    this.syncPlayerStatuses(now)
     const status = this.getStatus(now)
 
     if (status === "SCHEDULED" || status === "COUNTDOWN") {
@@ -238,17 +311,7 @@ class GameStore {
   }
 
   getSnapshot(now = Date.now()): GameSnapshot {
-    if (this.config.scheduledStartAt !== null && this.config.endAt !== null) {
-      if (now >= this.config.endAt) {
-        for (const player of this.players.values()) {
-          player.status = "ENDED"
-        }
-      } else if (now >= this.config.scheduledStartAt) {
-        for (const player of this.players.values()) {
-          if (player.status === "WAITING") player.status = "PLAYING"
-        }
-      }
-    }
+    this.syncPlayerStatuses(now)
 
     return {
       now,
@@ -261,20 +324,6 @@ class GameStore {
       leaderboard: buildLiveLeaderboard([...this.players.values()]),
     }
   }
-}
-
-function normalizeNullableNumber(value: unknown): number | null {
-  if (value === null || value === undefined || value === "") return null
-  const num = Number(value)
-  if (!Number.isFinite(num)) return null
-  return num
-}
-
-function normalizeNullableInteger(value: unknown): number | null {
-  if (value === null || value === undefined || value === "") return null
-  const num = Number(value)
-  if (!Number.isFinite(num)) return null
-  return Math.trunc(num)
 }
 
 function parseBestSimilarity(value: unknown): number {
@@ -313,4 +362,5 @@ export const gameStore = globalThis.__gameStore__ ?? new GameStore()
 
 if (!globalThis.__gameStore__) {
   globalThis.__gameStore__ = gameStore
+  gameStore.loadFromDisk().catch(console.error)
 }

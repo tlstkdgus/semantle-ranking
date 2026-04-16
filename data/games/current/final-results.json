@@ -1,17 +1,4 @@
 {
-  "answerWord": "1",
-  "finalResults": [
-    {
-      "rank": 1,
-      "userName": "대기",
-      "resultType": "CORRECT",
-      "submittedWord": "1",
-      "submittedAt": 1775528583281,
-      "elapsedMs": 3281,
-      "bestSimilarity": 1,
-      "tryCount": 1,
-      "score": 0.07919093011851452,
-      "submitOrder": 1
-    }
-  ]
+  "answerWord": "",
+  "finalResults": []
 }

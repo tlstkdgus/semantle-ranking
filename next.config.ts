@@ -3,7 +3,11 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // 허용된 개발 호스트 (원격 브라우저에서 HMR 등 dev 리소스 접근 허용)
   // 허용 값에 포트/프로토콜과 호스트명만 둘 다 포함하여 처리
-  allowedDevOrigins: ["http://70.12.60.85:3000", "70.12.60.85", "http://localhost:3000", "localhost"],
+  allowedDevOrigins: [
+    "http://70.12.60.85:3000", "70.12.60.85",
+    "http://70.12.60.86:3000", "70.12.60.86",
+    "http://localhost:3000", "localhost",
+  ],
   async headers() {
     return [
       {

@@ -1,6 +1,7 @@
 "use client"
 
 import { FormEvent, useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import type { FinalResultEntry, GameSnapshot } from "@/lib/shared/types"
 
 type StateResponse = {
@@ -26,6 +27,7 @@ const initialSnapshot: GameSnapshot = {
 }
 
 export default function AdminPage() {
+  const router = useRouter()
   const [snapshot, setSnapshot] = useState<GameSnapshot>(initialSnapshot)
   const [scheduledStartAt, setScheduledStartAt] = useState("")
   const [durationMinutes, setDurationMinutes] = useState("30")
@@ -33,12 +35,13 @@ export default function AdminPage() {
   const [revealedAnswer, setRevealedAnswer] = useState<string | null>(null)
   const [finalResults, setFinalResults] = useState<FinalResultEntry[]>([])
   const [message, setMessage] = useState("")
+  const [hideWords, setHideWords] = useState(false)
 
   useEffect(() => {
     fetchState()
     fetchFinalResults()
 
-    const eventSource = new EventSource(`${process.env.NEXT_PUBLIC_API_URL}/api/events`)
+    const eventSource = new EventSource(`/api/events`)
 
     const handleSnapshot = (event: MessageEvent) => {
       const data = JSON.parse(event.data) as GameSnapshot
@@ -74,7 +77,7 @@ export default function AdminPage() {
   }, [])
 
   async function fetchState() {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/state`, { cache: "no-store" })
+    const res = await fetch(`/api/game/state`, { cache: "no-store" })
     const data = (await res.json()) as StateResponse
     if (data.ok) {
       setSnapshot(data.snapshot)
@@ -82,7 +85,7 @@ export default function AdminPage() {
   }
 
   async function fetchFinalResults() {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/final-results`, { cache: "no-store" })
+    const res = await fetch(`/api/game/final-results`, { cache: "no-store" })
     const data = (await res.json()) as FinalResultsResponse
     if (data.ok) {
       setRevealedAnswer(data.answerWord)
@@ -110,19 +113,13 @@ export default function AdminPage() {
       return
     }
 
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/control`, {
+    const res = await fetch(`/api/game/control`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        scheduledStartAt: timestamp,
-        durationMinutes: minutes,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scheduledStartAt: timestamp, durationMinutes: minutes }),
     })
 
     const data = await res.json()
-
     if (!data.ok) {
       setMessage(data.message ?? "게임 설정에 실패했습니다.")
       return
@@ -133,10 +130,7 @@ export default function AdminPage() {
   }
 
   async function handleEndEarly() {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/end`, {
-      method: "POST",
-    })
-
+    const res = await fetch(`/api/game/end`, { method: "POST" })
     const data = await res.json()
 
     if (!data.ok) {
@@ -156,18 +150,13 @@ export default function AdminPage() {
       return
     }
 
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/reveal-answer`, {
+    const res = await fetch(`/api/game/reveal-answer`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        answerWord: answerWord.trim(),
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answerWord: answerWord.trim() }),
     })
 
     const data = await res.json()
-
     if (!data.ok) {
       setMessage(data.message ?? "정답 등록에 실패했습니다.")
       return
@@ -182,19 +171,14 @@ export default function AdminPage() {
     const ok = window.confirm("현재 참가자, 제출 정보, 최종 결과를 모두 초기화하시겠습니까?")
     if (!ok) return
 
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/game/reset`, {
-      method: "POST",
-    })
+    const res = await fetch(`/api/game/reset`, { method: "POST" })
 
     if (!res.ok) {
-      const text = await res.text()
       setMessage(`초기화에 실패했습니다. (${res.status})`)
-      console.error(text)
       return
     }
 
     const data = await res.json()
-
     if (!data.ok) {
       setMessage(data.message ?? "초기화에 실패했습니다.")
       return
@@ -209,11 +193,53 @@ export default function AdminPage() {
     setMessage("스토어와 저장 데이터가 초기화되었습니다.")
   }
 
+  async function handleLogout() {
+    await fetch(`/api/admin/logout`, { method: "POST" })
+    router.replace("/admin/login")
+  }
+
+  function downloadResultsCSV() {
+    const headers = ["순위", "닉네임", "결과", "제출 단어", "제출 시각", "경과 시간", "최고 유사도", "시도 횟수", "점수"]
+    const rows = finalResults.map((entry) => [
+      entry.rank,
+      entry.userName,
+      entry.resultType,
+      entry.submittedWord ?? "",
+      entry.submittedAt ? formatDateTime(entry.submittedAt) : "",
+      entry.elapsedMs !== null ? formatDuration(entry.elapsedMs) : "",
+      entry.bestSimilarity ?? "",
+      entry.tryCount ?? "",
+      entry.score,
+    ])
+
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n")
+
+    const bom = new Uint8Array([0xef, 0xbb, 0xbf])
+    const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" })
+    const link = document.createElement("a")
+    link.href = URL.createObjectURL(blob)
+    link.download = `semantle-결과-${new Date().toISOString().split("T")[0]}.csv`
+    link.click()
+    URL.revokeObjectURL(link.href)
+  }
+
+  const showWords = !hideWords || snapshot.gameStatus !== "RUNNING"
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8">
         <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-          <h1 className="text-3xl font-bold">관리자 페이지</h1>
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-bold">관리자 페이지</h1>
+            <button
+              onClick={handleLogout}
+              className="rounded-xl bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600"
+            >
+              로그아웃
+            </button>
+          </div>
           <div className="mt-4 grid gap-3 md:grid-cols-5">
             <InfoCard label="게임 상태" value={snapshot.gameStatus} />
             <InfoCard label="참가자 수" value={String(snapshot.totalPlayers)} />
@@ -244,7 +270,7 @@ export default function AdminPage() {
                 placeholder="게임 길이(분)"
                 className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none"
               />
-              <button className="rounded-xl bg-blue-600 px-4 py-3 font-medium">
+              <button className="rounded-xl bg-blue-600 px-4 py-3 font-medium hover:bg-blue-700">
                 시작 시각 및 게임 길이 저장
               </button>
             </form>
@@ -252,7 +278,7 @@ export default function AdminPage() {
             <button
               type="button"
               onClick={handleEndEarly}
-              className="mt-4 w-full rounded-xl bg-rose-600 px-4 py-3 font-medium"
+              className="mt-4 w-full rounded-xl bg-rose-600 px-4 py-3 font-medium hover:bg-rose-700"
             >
               조기 종료
             </button>
@@ -260,7 +286,7 @@ export default function AdminPage() {
             <button
               type="button"
               onClick={handleResetStore}
-              className="mt-4 w-full rounded-xl bg-amber-600 px-4 py-3 font-medium"
+              className="mt-4 w-full rounded-xl bg-amber-600 px-4 py-3 font-medium hover:bg-amber-700"
             >
               스토어 및 저장 데이터 초기화
             </button>
@@ -275,7 +301,7 @@ export default function AdminPage() {
                 placeholder="정답 단어 입력"
                 className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none"
               />
-              <button className="rounded-xl bg-emerald-600 px-4 py-3 font-medium">
+              <button className="rounded-xl bg-emerald-600 px-4 py-3 font-medium hover:bg-emerald-700">
                 정답 등록 및 최종 결과 계산
               </button>
             </form>
@@ -286,7 +312,17 @@ export default function AdminPage() {
         </section>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-          <h2 className="mb-4 text-xl font-semibold">실시간 제출 현황</h2>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold">실시간 제출 현황</h2>
+            <button
+              onClick={() => setHideWords((v) => !v)}
+              className={`rounded-lg px-3 py-1 text-sm font-medium ${
+                hideWords ? "bg-slate-600 hover:bg-slate-500" : "bg-indigo-600 hover:bg-indigo-700"
+              }`}
+            >
+              {hideWords ? "단어 표시" : "단어 숨김"}
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-full border-collapse text-sm">
               <thead>
@@ -307,7 +343,11 @@ export default function AdminPage() {
                     <td className="px-3 py-3">{entry.rank}</td>
                     <td className="px-3 py-3">{entry.userName}</td>
                     <td className="px-3 py-3">{entry.status}</td>
-                    <td className="px-3 py-3">{entry.submittedWord ?? "-"}</td>
+                    <td className="px-3 py-3">
+                      {entry.submittedWord
+                        ? showWords ? entry.submittedWord : "****"
+                        : "-"}
+                    </td>
                     <td className="px-3 py-3">{entry.submitOrder ?? "-"}</td>
                     <td className="px-3 py-3">{entry.bestSimilarity ?? "-"}</td>
                     <td className="px-3 py-3">{entry.tryCount ?? "-"}</td>
@@ -331,8 +371,18 @@ export default function AdminPage() {
         <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold">최종 결과</h2>
-            <div className="text-sm text-slate-300">
-              정답 {revealedAnswer ? `"${revealedAnswer}"` : "미공개"}
+            <div className="flex items-center gap-4">
+              <div className="text-sm text-slate-300">
+                정답 {revealedAnswer ? `"${revealedAnswer}"` : "미공개"}
+              </div>
+              {revealedAnswer && finalResults.length > 0 && (
+                <button
+                  onClick={downloadResultsCSV}
+                  className="rounded-lg bg-indigo-600 px-3 py-1 text-sm font-medium hover:bg-indigo-700"
+                >
+                  CSV 다운로드
+                </button>
+              )}
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -394,13 +444,8 @@ function InfoCard({ label, value }: { label: string; value: string }) {
 }
 
 function formatDateTime(value: number | null) {
-  if (value === null) {
-    return "미정"
-  }
-
-  return new Date(value).toLocaleString("ko-KR", {
-    hour12: false,
-  })
+  if (value === null) return "미정"
+  return new Date(value).toLocaleString("ko-KR", { hour12: false })
 }
 
 function formatDuration(ms: number) {
